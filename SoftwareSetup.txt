@@ -1,0 +1,7 @@
+
+Software setup:
+
+1.jdk - open jdk or oracle jdk - 17
+2.Intellij idea - IDE Community edition...
+3.Docker Desktop
+4.Linux Using windows sub system - ubuntu - optional
