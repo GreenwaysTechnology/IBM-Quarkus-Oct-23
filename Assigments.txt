@@ -12,4 +12,18 @@ filter books by category.
 update book by ISBN No
 remove book by ISBN No
 
-With NonBlocking and Blocking way...
+
+Assigement:
+ Build Book Rest API  with service layer
+
+2.implement CURD operations using mock data 
+  Mock data can be implemented using List.
+
+Add new book.
+Return all books
+Return book by ISBN no
+filter books by category.
+update book by ISBN No
+remove book by ISBN No
+
+With NonBlocking and Blocking way... NonBlocking and Blocking way...

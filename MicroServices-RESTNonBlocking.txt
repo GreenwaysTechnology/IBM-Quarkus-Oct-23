@@ -808,12 +808,15 @@ Reactive Response Object:
 package com.ibm.rest.api.responses;
 
 import com.ibm.rest.api.entity.Product;
+import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.jboss.resteasy.reactive.RestResponse;
-import org.jboss.resteasy.reactive.RestResponse.ResponseBuilder;
+import org.jboss.resteasy.reactive.RestMulti;
+
 
 import java.util.List;
 
@@ -842,9 +845,22 @@ public class ReactiveNonBlockingResource {
         return Uni.createFrom().item(products);
     }
 
+    @Path("/stream")
+    @Produces(MediaType.SERVER_SENT_EVENTS) // or just @Produces
+    public Multi<List<Product>> stream() {
+        List<Product> products = List.of(
+                new Product(1, "Tooth Paste", 1233.00),
+                new Product(2, "Too brush", 123.00),
+                new Product(3, "Shaving cream", 500.00),
+                new Product(1, "Soap", 340.00));
+
+        return Multi.createFrom().items(products);
+    }
+
     @GET
     @Path("/products/response")
-    public RestResponse<List<Product>> getProductsResponse() {
+    public Uni<Response> getProductsResponse() {
+        System.out.println(Thread.currentThread().getName());
         List<Product> products = List.of(
                 new Product(1, "Tooth Paste", 1233.00),
                 new Product(2, "Too brush", 123.00),
@@ -852,11 +868,15 @@ public class ReactiveNonBlockingResource {
                 new Product(1, "Soap", 340.00)
 
         );
-        return ResponseBuilder.ok(products).build();
+        return Uni.createFrom().item(products).onItem()
+                .transform(f -> Response.ok(f).header("hello", "howare you"))
+                .onItem().transform(Response.ResponseBuilder::build);
     }
 }
+
+
 .....................................................................................
-		How to get Payload
+				How to get Payload
 ....................................................................................
 
 package com.ibm.rest.api.request.payload;
@@ -877,4 +897,333 @@ public class ItemResource {
         return item;
     }
 }
+.....................................................................................
+			Blocking and Non Blocking Threading Models
+
+Quarkus(Vertx) provides two types of threads
+
+1.Event loop thread
+   Thread which is used to build non blocking apps
+   Vertx(Quarkus) provides limited no threads to handle large concurrency
+   Quarkus enables event loop thread is activated to handle incoming request by 
+   Mutiny type called "Uni or Multi"
+
+2.Worker loop thread
+    It is Request Per thread model threads, when ever new request comes, quarkus allocats new a spearate thread for that request , that thread cant be reused by other request.
+
+.................................................................................
+		The Golden Rule - Don’t Block the Event Loop thread
+.................................................................................
+
+Caution:
+  You should not write any code  which blocks event loop thread.
+
+if you block event loop thread, vertx engine throws warning and error(Thread Blocked Exception).
+
+if the code is executed by "Event loop thread", inside that code we should not write any code which blocks that thread....
+
+What are the code which blocks event loop thread.
+
+1.Thread.sleep()
+2.Waiting on a lock
+3.Waiting on a mutex or monitor (e.g. synchronized section)
+4.Doing a long lived database operation and waiting for a result
+5.Doing a complex calculation that takes some significant time.
+6.Spinning in a loop
+
+
+eg:
+package com.ibm.rest.api.threading;
+
+import com.ibm.rest.api.entity.Product;
+import io.smallrye.mutiny.Uni;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+
+import java.util.List;
+
+@Path("blocking")
+public class BlockingEventLoopResource {
+
+    @GET
+    public Uni<List<Product>> getProduct() throws InterruptedException {
+        System.out.println("Get Product => " + Thread.currentThread().getName());
+        List<Product> products = List.of(
+                new Product(1, "Tooth Paste", 1233.00),
+                new Product(2, "Too brush", 123.00),
+                new Product(3, "Shaving cream", 500.00),
+                new Product(1, "Soap", 340.00));
+        //write some code which blocks the event loop thread
+        Thread.sleep(6000);
+        return Uni.createFrom().item(products);
+    }
+}
+Get Product => vert.x-eventloop-thread-0
+2023-10-30 14:31:22,096 WARN  [io.ver.cor.imp.BlockedThreadChecker] (vertx-blocked-thread-checker) Thread Th
+read[vert.x-eventloop-thread-0,5,main] has been blocked for 2956 ms, time limit is 2000 ms: io.vertx.core.Ve
+rtxException: Thread blocked
+        at java.base@17.0.7/java.lang.Thread.sleep(Native Method)
+        at com.ibm.rest.api.threading.BlockingEventLoopResource.getProduct(BlockingEventLoopResource.java:22
+)
+    
+Here we can that got exception, the reason because the thread has been blocked for  more time.
+
+Generally event loop thread can be blocked only for 2000ms which is default time out 
+
+beyond that if try to block, Vertx will throw Exception, called "Thread Blocked"
+
+Exception.
+.....................................................................................
+What if i want to write blocking operations inside the nonblocking code which returns Reactive?
+
+@Blocking Annotation:
+
+package com.ibm.rest.api.threading;
+
+import com.ibm.rest.api.entity.Product;
+import io.smallrye.common.annotation.Blocking;
+import io.smallrye.mutiny.Uni;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+
+import java.util.List;
+
+@Path("blocking")
+public class BlockingEventLoopResource {
+
+    @GET
+    @Blocking //safely delegate the work to worker thread...
+    public Uni<List<Product>> getProduct() throws InterruptedException {
+        System.out.println("Get Product => " + Thread.currentThread().getName());
+        List<Product> products = List.of(
+                new Product(1, "Tooth Paste", 1233.00),
+                new Product(2, "Too brush", 123.00),
+                new Product(3, "Shaving cream", 500.00),
+                new Product(1, "Soap", 340.00));
+        //write some code which blocks the event loop thread
+        Thread.sleep(6000);
+        return Uni.createFrom().item(products);
+    }
+}
+.....................................................................................
+What if i want to schdule some tasks in delayed manner?
+
+=>Thread.sleep :Which is not reactive scheduler.
+=>onItem.delayIt() : Which is reactive scheduler
+
+
+
+package com.ibm.rest.api.threading;
+
+import com.ibm.rest.api.entity.Product;
+import io.smallrye.common.annotation.Blocking;
+import io.smallrye.mutiny.Uni;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+
+import java.time.Duration;
+import java.util.List;
+
+@Path("blocking")
+public class BlockingEventLoopResource {
+
+    @GET
+    @Blocking //safely delegate the work to worker thread...
+    public Uni<List<Product>> getProduct() throws InterruptedException {
+        System.out.println("Get Product => " + Thread.currentThread().getName());
+        List<Product> products = List.of(
+                new Product(1, "Tooth Paste", 1233.00),
+                new Product(2, "Too brush", 123.00),
+                new Product(3, "Shaving cream", 500.00),
+                new Product(1, "Soap", 340.00));
+        //write some code which blocks the event loop thread
+        Thread.sleep(6000);
+        return Uni.createFrom().item(products);
+    }
+
+    @GET
+    @Path("/reactiveschduler")
+    public Uni<List<Product>> getReactiveProducts() throws InterruptedException {
+        System.out.println("getReactiveProducts => " + Thread.currentThread().getName());
+        List<Product> products = List.of(
+                new Product(1, "Tooth Paste", 1233.00),
+                new Product(2, "Too brush", 123.00),
+                new Product(3, "Shaving cream", 500.00),
+                new Product(1, "Soap", 340.00));
+        return Uni.createFrom().item(products).onItem().delayIt().by(Duration.ofSeconds(6));
+    }
+
+}
+..................................................................................
+			  Exception Handling
+..................................................................................	What can be Response
+
+Response Types:
+
+1.SUCCESS Response
+2.ERROR Response
+
+How to handle / Convert ERRORS/Exceptions into HTTP Response Object?
+
+ public Response getResponse(){
+
+     return Response.ok().build();
+ }
+
+
+2.Application Exception
+   
+  UserNotFoundException
+  PasswordMissMatchException
+  ...
+public boolean validate(){
+
+  if(passwordmatch){
+
+
+  }
+  else{ 
+       throw new PasswordMismatchException("password does not match");
+  } 
+}
+
+JAX-RS also provides the javax.ws.rs.WebApplicationException.
+ 
+This can be thrown by application code and automatically processed by JAX-RS without
+having to write an explicit mapper.
+
+..................................................................................
+
+Basic Exceptions:
+=>How to throw Runtime Exception?
+
+package com.ibm.rest.api.exceptions;
+
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.core.Response;
+
+@Path("project")
+public class ProjectResource {
+
+    @GET
+    @Path("/{name}")
+    public Response getProject(@PathParam("name") String name) {
+        if (name.equals("quarkus")) {
+            return Response.ok().entity("Quarkus").build();
+        } else {
+            // throw new RuntimeException("Project Not Found");
+            throw new ProjectNotFoundException("Project Not Found!!");
+        }
+
+    }
+
+    class ProjectNotFoundException extends RuntimeException {
+        public ProjectNotFoundException(String message) {
+            super(message);
+        }
+    }
+}
+...........
+RestEasy provides special Runtime Exception class called WebApplication Exception
+and its sub types Like BadRequestException,NotFoundException..
+
+Using WebApplication,NotFoundException:
+
+package com.ibm.rest.api.exceptions;
+
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Response;
+
+@Path("project")
+public class ProjectResource {
+
+    @GET
+    @Path("/{name}")
+    public Response getProject(@PathParam("name") String name) {
+        if (name.equals("quarkus")) {
+            return Response.ok().entity("Quarkus").build();
+        } else {
+            throw new WebApplicationException("Project Not Found!!");
+
+        }
+
+    }
+
+}
+
+Here the throws Exception, but we have not handled this exception right way...
+
+We need to handle the error and convert that error into response and sent to the user.
+
+package com.ibm.rest.api.exceptions;
+
+import jakarta.ws.rs.WebApplicationException;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.ExceptionMapper;
+import jakarta.ws.rs.ext.Provider;
+
+@Provider
+public class WebApplicationExceptionMapper implements ExceptionMapper<WebApplicationException> {
+    @Override
+    public Response toResponse(WebApplicationException e) {
+        return Response.ok().entity(e.getMessage()).build();
+    }
+}
+
+package com.ibm.rest.api.exceptions;
+
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.ext.ExceptionMapper;
+import jakarta.ws.rs.ext.Provider;
+
+@Path("project")
+public class ProjectResource {
+
+    @GET
+    @Path("/{name}")
+    public Response getProject(@PathParam("name") String name) {
+        if (name.equals("quarkus")) {
+            return Response.ok().entity("Quarkus").build();
+        } else {
+            // throw new RuntimeException("Project Not Found");
+            //throw new BadRequestException("Project Not Found Exception");
+            throw new WebApplicationException("Project Not Found!!");
+        }
+
+    }
+
+    //    class ProjectNotFoundException extends RuntimeException {
+//        public ProjectNotFoundException(String message) {
+//            super(message);
+//        }
+//    }
+//        class ProjectNotFoundException extends NotFoundException {
+//        public ProjectNotFoundException(String message) {
+//            super(message);
+//        }
+    class ProjectNotFoundException extends WebApplicationException {
+        public ProjectNotFoundException(String message) {
+            super(message);
+        }
+    }
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
