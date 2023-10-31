@@ -19,10 +19,21 @@ public class CustomerResource {
     }
 
     //GET BY id
+    //without error handling
+//    @GET
+//    @Path("{id}")
+//    public Uni<Customer> getCustomerById(@PathParam("id") Long id) {
+//        return Customer.findById(id);
+//    }
+    //with error Handling
     @GET
     @Path("{id}")
-    public Uni<Customer> getCustomerById(@PathParam("id") Long id) {
-        return Customer.findById(id);
+    public Uni<Response> getCustomerById(@PathParam("id") Long id) {
+        return Customer.findById(id).onItem().transform(entity -> {
+            if (entity == null) {
+                throw new WebApplicationException("Customer with ID Of " + id + "does not  exits", 404);
+            }
+            return Response.ok(entity).status(200).build();
+        });
     }
-
 }
