@@ -1,0 +1,154 @@
+				Microservices-Caching
+.....................................................................................
+What is caching?
+ A Cache is hardware or software that is used to store something, usually data , temporarily in computing environment.
+
+Why Caching?
+ Caching Will Improve the application Peformance.
+
+Normal Workflow:
+Client------>Api------>Datasource
+Client------>Api------>Datasource
+Client------>Api------>Datasource
+Client------>Api------>Datasource
+
+Caching workflow:
+Client----->Api---->Data sources
+Client----->Api---Cache<--->Data sources
+
+Quarkus and Cache:
+ Quarkus can use no of cache implementations
+
+1.InMemory Cache
+2.Redis as Cache
+3.MemCache as Cache
+
+In respective of Cache providers
+
+Quarkus offers Common Cache specification which offers common annotations
+
+@CacheResult
+  Loads a method from the cache without executing the body body whenever possible.
+
+@CacheInvalidate
+ Removes entry from the cache
+
+@CacheInvalidateAll
+  Removes all entries from the cache
+
+@CacheKey
+  When a method arg is annotated with @Cachekey , it is identified as part of the cache key during invocation of a method annotated with @CacheResult or @CacheInvalidate.
+
+
+Use case:
+ Build Rest api, with datasource,cache with Redis.
+
+Create Project :
+
+package com.ibm.reactive.data.activerecord;
+
+import io.quarkus.cache.CacheResult;
+import io.quarkus.hibernate.reactive.panache.Panache;
+import io.smallrye.mutiny.Uni;
+import jakarta.ws.rs.*;
+import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
+
+import java.util.List;
+
+@Path("customers")
+public class CustomerResource {
+
+    //List of Customers
+    @GET
+    @CacheResult(cacheName = "customers")
+    public Uni<List<Customer>> findAll() {
+        System.out.println("GetCustomer By id is called");
+        return Customer.listAll();
+    }
+
+    //GET BY id
+    //without error handling
+    @GET
+    @Path("{id}")
+    @CacheResult(cacheName = "customerById")
+    public Uni<Customer> getCustomerById(@PathParam("id") Long id) {
+        return Customer.findById(id);
+    }
+    //with error Handling
+   // @GET
+//    @Path("{id}")
+////    @CacheResult(cacheName = "customerById")
+//    @Produces(MediaType.APPLICATION_JSON)
+//    public Uni<Response> getCustomerById(@PathParam("id") Long id) {
+//        System.out.println("Get Customer By id");
+//        return Customer.findById(id).onItem().transform(entity -> {
+//            if (entity == null) {
+//                throw new WebApplicationException("Customer with ID Of " + id + "does not  exits", 404);
+//            }
+//            return Response.ok(entity).status(200).build();
+//        });
+//    }
+
+    //POST
+    @POST
+    public Uni<Response> create(Customer customer) {
+        //handle error
+        if (customer == null || customer.name == null) {
+            throw new WebApplicationException("Customer Not Found", 400);
+        }
+        return Panache.withTransaction(customer::persist)
+                .replaceWith(Response.ok(customer)
+                        .status(Response.Status.CREATED).build());
+    }
+
+    @PUT
+    @Path("{id}")
+    public Uni<Response> update(@PathParam("id") Long id, Customer customer) {
+        //handle error
+        if (customer == null || customer.name == null) {
+            throw new WebApplicationException("Customer Name was not set on request.", 422);
+        }
+        return Panache.withTransaction(() ->
+                Customer.<Customer>findById(id).onItem().ifNotNull().invoke(entity -> {
+                            entity.city = customer.city;
+                            entity.name = customer.name;
+                        })
+                        .onItem().ifNotNull().transform(entity -> Response.ok(entity).status(200).build())
+                        .onItem().ifNull().continueWith(Response.ok().status(Response.Status.NOT_FOUND)::build));
+    }
+
+    //Delete
+    @Path("{id}")
+    @DELETE
+    public Uni<Response> delete(@PathParam("id") Long id) {
+        return Panache.withTransaction(() ->
+                Customer.deleteById(id).map(isDeleted ->
+                        isDeleted ? Response.ok().status(Response.Status.NO_CONTENT).build()
+                                : Response.ok().status(Response.Status.NOT_FOUND).build()
+                )
+        );
+    }
+}
+
+Testing:
+
+Try to hit url having customers and customerBy id many time, you can note down the data is comming from cache.
+http://localhost:8080/customers/2
+
+You can test data in redis cli
+# redis-cli
+127.0.0.1:6379> keys *
+1) "cache:customerById:1"
+2) "cache:customers:default-cache-key"
+127.0.0.1:6379> get cache:CustomerById:1
+(nil)
+127.0.0.1:6379> get cache:CustomerById:1
+(nil)
+127.0.0.1:6379> get cache:customerById:1
+"{\"id\":1,\"name\":\"Subramanian\",\"city\":\"Coimbatore\"}"
+127.0.0.1:6379> get cache:customerById:2 
+"{\"id\":2,\"name\":\"Murugan\",\"city\":\"Coimbatore\"}"
+127.0.0.1:6379> 
+
+
