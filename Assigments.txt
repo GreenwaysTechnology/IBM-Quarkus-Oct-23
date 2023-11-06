@@ -42,3 +42,20 @@ You have to enable caching
 YOu have to use service communication pattern using "RestClient"
 
 User---GET-----------Caller-----------Callee-----Datasources
+
+4.3.Build Customer api with datasources.
+
+You have to create two Customer service
+
+caller - customer service
+
+Callee - Must prvoide all CURD operations with database integrations in using either  
+         Record pattern or DAO pattern.
+You have to enable caching
+
+YOu have to use service communication pattern using "RestClient"
+
+User---GET-----------Caller-----------Callee-----Datasources
+
+Use Service Registry implementations.
+
