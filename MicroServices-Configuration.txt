@@ -456,6 +456,40 @@ public class GreetingResource {
         return message;
     }
 }
+....................................................................................
+			 Profiles
+....................................................................................
+Environment based configuration:
+
+1.Production env
+2.development env
+3.Testing env
+4.Custom env
+   -Staging
+   -Pipeline.
+
+What if i want to supply the properties based on env.
+
+In Property files
+
+%dev.greeting.message =Hello From dev
+%prod.greeting.message=Hello From Production
+
+eg:
+
+%dev.quarkus.http.port=8080
+%prod.quarkus.http.port=9090
+%dev.greeting.message=Hello from Dev
+%prod.greeting.message=Hello from Prod
+
+Property Expression:
+dev.host=8080
+prod.host=9090
+
+%dev.quarkus.http.port=${dev.host}
+%prod.quarkus.http.port=${prod.host}
+%dev.greeting.message=Hello from Dev
+%prod.greeting.message=Hello from Prod
 
 
 

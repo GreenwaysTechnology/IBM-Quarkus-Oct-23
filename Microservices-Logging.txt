@@ -1,0 +1,189 @@
+			  Quarkus and Logging
+.....................................................................................Logging is one of the core concept in application development used to track the application status - What is happening.
+
+Status of Logging;
+1.info
+2.warning
+3.error 
+4.verbose
+
+How do you do logging?
+
+Generally we log using System.out.println("")
+
+ This statement logs infromaton on the console only.
+ We cant save the logs inside system, for future reference, for auditing there is no clearlity what type of message lt is like error or warning , info...
+
+This where logging frameworks comes into picture.
+
+There are most popular logging system.
+
+1.JDK java.util.logging
+2.Jboss logging
+3.Apache Log4J
+4.Log4J or SLF4J
+5.Apache Commons Logging.
+
+Quarkus uses Jboss logging by default, you dont need to add any thrid party loggers.
+
+Simple Log:
+package org.acme;
+
+import io.smallrye.mutiny.Uni;
+import jakarta.inject.Inject;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.core.MediaType;
+import org.jboss.logging.Logger;
+
+@Path("/hello")
+public class GreetingResource {
+
+    //Logger
+ //   private static final Logger LOG = Logger.getLogger(GreetingResource.class);
+    @Inject
+    Logger LOG;
+
+    @GET
+    @Produces(MediaType.TEXT_PLAIN)
+    public Uni<String> hello() {
+        LOG.info("hello api is called");
+        return Uni.createFrom().item("Hello from RESTEasy Reactive");
+    }
+}
+
+What if i want to use third logger frameworks like Log4j?
+
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-resteasy-reactive</artifactId>
+    </dependency>
+
+How to configure the logs during runtime using application.properties:
+......................................................................
+
+application.properties
+quarkus.log.level=WARN
+
+Alternative console logging formats:
+...................................
+
+It is possible to change the output of log format.
+
+This can be very usefull in en where the output of the quarkus application is caputured by a service which can for eg, process and store the log information for analytics.
+
+JSON logging format.
+    <dependency>
+      <groupId>io.quarkus</groupId>
+      <artifactId>quarkus-logging-json</artifactId>
+    </dependency>
+
+Output:
+{"timestamp":"2023-11-07T16:31:21.730619+05:30","sequence":1864,"loggerClassName":"org.jboss.logging.Logger"
+,"loggerName":"org.acme.GreetingResource","level":"WARN","message":"Hello warning","threadName":"vert.x-even
+tloop-thread-0","threadId":121,"mdc":{},"ndc":"","hostName":"laptop-r2tggfdl","processName":"code-with-quark
+us-logging-dev.jar","processId":6200}
+
+..................................................................................
+                         Log Handlers
+....................................................................................
+
+Log Handler is a logging component is responsible for the emission of log events to a recipient.
+
+Quarkus supports three different log handlers.
+
+=>Console - default one
+=>File 
+=>Syslog
+
+Console log handler:
+=>It is default log handler . It outputs all log events to the console of your application(typically to the systems stdout).
+
+application.properties
+#quarkus.log.level=WARN
+
+%prod.quarkus.log.console.json=true
+%dev.quarkus.log.console.json=false
+
+#Log Handler: file
+quarkus.log.console.enable=true
+quarkus.log.file.enable=true
+quarkus.log.file.level=ALL
+quarkus.log.file.path=quarkus.log
+
+SysLog log Handler:
+ SysLog is a protocal for sending log messages on Unix like systems using a protocal defined by REFC 5424
+...................................................................................
+		Centeralized log management-Microserivces Log Management
+....................................................................................
+
+Capturing microservices logs and send to the centralized log manager where we can analisyze the log information...
+
+There are various products available in the market to capture logs
+such as like graylog,logstash
+
+Logstash:
+ Inside Elastic Stack or ELK - Elasticsearch,LogStash,Kibana)
+ Inside Fluentd Stak OR EFK - ElasticSearch,FluentId,Kibana)
+ Inside GLF stack - GrayLog,Logstash,Fluented
+
+We can push logs into ELK or EFK stack or GLF
+....................................................................................
+Send logs to Graylog:
+ in order to send graylog, you first need to lanuch the components that compose the GrayLog stack.
+
+=>Mongodb
+=>ElasticSearch
+=>Graylog
+
+docker-compose.yml
+version: '3.2'
+
+services:
+  elasticsearch:
+    image: docker.io/elastic/elasticsearch:7.16.3
+    ports:
+      - "9200:9200"
+    environment:
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      discovery.type: "single-node"
+    networks:
+      - graylog
+
+  mongo:
+    image: mongo:4.0
+    networks:
+      - graylog
+
+  graylog:
+    image: graylog/graylog:4.3.0
+    ports:
+      - "9000:9000"
+      - "12201:12201/udp"
+      - "1514:1514"
+    environment:
+      GRAYLOG_HTTP_EXTERNAL_URI: "http://127.0.0.1:9000/"
+      # CHANGE ME (must be at least 16 characters)!
+      GRAYLOG_PASSWORD_SECRET: "forpasswordencryption"
+      # Password: admin
+      GRAYLOG_ROOT_PASSWORD_SHA2: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+    networks:
+      - graylog
+    depends_on:
+      - elasticsearch
+      - mongo
+
+networks:
+  graylog:
+    driver: bridge
+
+start docker containers
+
+docker-compose up:
+
+
+
+
+
+
